@@ -1,0 +1,11 @@
+{
+    "name": "esp-nn",
+    "version": "1.0.0",
+    "build": {
+        "flags": [
+            "-DCONFIG_NN_OPTIMIZED"
+        ],
+        "srcDir": "src",
+        "includeDir": "include"
+    }
+}
