@@ -6,6 +6,10 @@
             "-DCONFIG_NN_OPTIMIZED"
         ],
         "srcDir": "src",
-        "includeDir": "include"
+        "includeDir": "include",
+        "srcFilter": [
+            "+<*>",
+            "-<**/*esp32p4*>"
+        ]
     }
 }
