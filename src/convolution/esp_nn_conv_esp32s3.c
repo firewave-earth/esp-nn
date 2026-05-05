@@ -428,17 +428,23 @@ void esp_nn_conv_s8_esp32s3(const data_dims_t *input_dims,
 
     int filter_size = filter_wd * filter_ht * channels * out_channels;
 
-    /* 1x1 stride-1 conv: always use the new corrected `esp_nn_conv_s8_1x1`.
-     * The legacy `esp_nn_conv_s8_mult8_1x1_esp32s3` ASM kernel writes 8 bytes
-     * BEFORE its scratch buffer (corrupting the heap head canary) when
-     * channels % 8 == 0. Diagnosed on Stage B model with channels=48,96,192,384.
-     */
+    /* 1x1 stride-1 conv */
     if (filter_wd == 1 && filter_ht == 1 && pad_wd == 0 && pad_ht == 0 &&
             stride_wd == 1 && stride_ht == 1) {
-        esp_nn_conv_s8_1x1(input, input_wd, input_ht, channels, input_offset,
-                           filter_data, bias, out_data, out_channels, out_offset,
-                           out_shift, out_mult, activation_min, activation_max,
-                           scratch_buffer);
+        if (channels % 8 == 0) {
+            /* Full asm path — requires mult8 channels + 8-byte aligned filter */
+            esp_nn_conv_s8_mult8_1x1_esp32s3(input, input_wd, input_ht, channels,
+                               input_offset, filter_data, bias, out_data,
+                               out_wd, out_ht, out_channels, out_offset,
+                               out_shift, out_mult, activation_min, activation_max,
+                               scratch_buffer);
+        } else {
+            /* Fallback: handles any alignment + any channel count */
+            esp_nn_conv_s8_1x1(input, input_wd, input_ht, channels, input_offset,
+                               filter_data, bias, out_data, out_channels, out_offset,
+                               out_shift, out_mult, activation_min, activation_max,
+                               scratch_buffer);
+        }
         return;
     }
 
