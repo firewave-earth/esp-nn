@@ -432,12 +432,19 @@ void esp_nn_conv_s8_esp32s3(const data_dims_t *input_dims,
     if (filter_wd == 1 && filter_ht == 1 && pad_wd == 0 && pad_ht == 0 &&
             stride_wd == 1 && stride_ht == 1) {
         if (channels % 8 == 0) {
-            /* Full asm path — requires mult8 channels + 8-byte aligned filter */
+            /* esp_nn_conv_s8_mult8_1x1_esp32s3.S requires the scratch buffer
+             * to be 16-byte aligned (its ee.vst.128 / ee.ld.128 instructions
+             * silently align addresses down to a 16-byte boundary, so an
+             * unaligned scratch turns the first transpose store into a
+             * write before scratch[0] — heap canary corruption in the
+             * preceding allocation). The 64 bytes the scratch-size calc
+             * reserves under align_buf_size cover this fixup. */
+            void *aligned_sb = (void *)(((uintptr_t)scratch_buffer + 15) & ~(uintptr_t)15);
             esp_nn_conv_s8_mult8_1x1_esp32s3(input, input_wd, input_ht, channels,
                                input_offset, filter_data, bias, out_data,
                                out_wd, out_ht, out_channels, out_offset,
                                out_shift, out_mult, activation_min, activation_max,
-                               scratch_buffer);
+                               aligned_sb);
         } else {
             /* Fallback: handles any alignment + any channel count */
             esp_nn_conv_s8_1x1(input, input_wd, input_ht, channels, input_offset,
@@ -452,6 +459,14 @@ void esp_nn_conv_s8_esp32s3(const data_dims_t *input_dims,
         printf("esp_nn_conv error! scratch_buffer not set!\n");
         return;
     }
+
+    /* The general (non-1x1) optimized kernel produces wrong logits on at
+     * least the Stage B wildfire model (firewave). Until that's diagnosed,
+     * route to the ansi reference. Costs ~2 s on the stem 3x3, total
+     * inference still under the 15 s budget. */
+    esp_nn_conv_s8_ansi(input_dims, input, filter_dims, filter_data,
+                        bias, output_dims, out_data, conv_params, quant_data);
+    return;
 
     {
         int32_t filter_row_size = filter_wd * channels;
