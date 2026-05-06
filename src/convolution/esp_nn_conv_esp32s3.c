@@ -460,13 +460,26 @@ void esp_nn_conv_s8_esp32s3(const data_dims_t *input_dims,
         return;
     }
 
-    /* The general (non-1x1) optimized kernel produces wrong logits on at
-     * least the Stage B wildfire model (firewave). Until that's diagnosed,
-     * route to the ansi reference. Costs ~2 s on the stem 3x3, total
-     * inference still under the 15 s budget. */
+    /* DEBUG: bug #3 investigation. Compute ansi reference into out_ref,
+     * then let the optimized kernel write into out_data, then diff. We
+     * memcpy the ansi result back into out_data afterwards so downstream
+     * predictions stay correct while we debug. */
+    const int conv_drift_out_size = (int)out_wd * (int)out_ht * (int)out_channels;
+    int8_t *conv_drift_out_ref = NULL;
+#if defined(ESP_PLATFORM) || defined(__XTENSA__)
+    conv_drift_out_ref = (int8_t *)heap_caps_malloc(conv_drift_out_size, MALLOC_CAP_SPIRAM);
+    if (!conv_drift_out_ref) {
+        printf("CONV DRIFT: malloc(%d) failed; ansi-only fallback\n", conv_drift_out_size);
+        esp_nn_conv_s8_ansi(input_dims, input, filter_dims, filter_data,
+                            bias, output_dims, out_data, conv_params, quant_data);
+        return;
+    }
     esp_nn_conv_s8_ansi(input_dims, input, filter_dims, filter_data,
-                        bias, output_dims, out_data, conv_params, quant_data);
-    return;
+                        bias, output_dims, conv_drift_out_ref, conv_params, quant_data);
+    printf("CONV DRIFT general: in=%dx%dx%d filt=%dx%d out_ch=%d out_size=%d ansi_done\n",
+           (int)input_wd, (int)input_ht, (int)channels,
+           (int)filter_wd, (int)filter_ht, (int)out_channels, conv_drift_out_size);
+#endif
 
     {
         int32_t filter_row_size = filter_wd * channels;
@@ -586,4 +599,37 @@ void esp_nn_conv_s8_esp32s3(const data_dims_t *input_dims,
             CONV_HEAP_CHECK("general: after asm (normal)");
         }
     }
+
+#if defined(ESP_PLATFORM) || defined(__XTENSA__)
+    if (conv_drift_out_ref) {
+        int n_diff = 0;
+        int max_abs_diff = 0;
+        long sum_abs_diff = 0;
+        int first_diff_idx = -1;
+        for (int i = 0; i < conv_drift_out_size; i++) {
+            int d = (int)out_data[i] - (int)conv_drift_out_ref[i];
+            if (d != 0) {
+                if (n_diff < 12) {
+                    int row = i / ((int)out_wd * (int)out_channels);
+                    int col = (i / (int)out_channels) % (int)out_wd;
+                    int oc  = i % (int)out_channels;
+                    printf("CONV DRIFT diff[%d]@(r=%d,c=%d,oc=%d): opt=%d ansi=%d (d=%d)\n",
+                           i, row, col, oc, (int)out_data[i],
+                           (int)conv_drift_out_ref[i], d);
+                }
+                if (first_diff_idx < 0) first_diff_idx = i;
+                n_diff++;
+                int ad = d < 0 ? -d : d;
+                if (ad > max_abs_diff) max_abs_diff = ad;
+                sum_abs_diff += ad;
+            }
+        }
+        printf("CONV DRIFT summary: %d/%d bytes differ, max|d|=%d, mean|d|=%.3f, first_idx=%d\n",
+               n_diff, conv_drift_out_size, max_abs_diff,
+               n_diff > 0 ? (double)sum_abs_diff / n_diff : 0.0, first_diff_idx);
+        /* Restore ansi result so downstream predictions stay correct. */
+        memcpy(out_data, conv_drift_out_ref, conv_drift_out_size);
+        heap_caps_free(conv_drift_out_ref);
+    }
+#endif
 }
