@@ -488,6 +488,16 @@ void esp_nn_depthwise_conv_s8_esp32s3(const data_dims_t *input_dims,
                                       const dw_conv_params_t *conv_params,
                                       const quant_data_t *quant_data)
 {
+    /* Align scratch to 16 bytes — same root cause as Bug #1 for the 1x1
+     * conv: inner depthwise kernels use ee.vld.128 / ee.vst.128 which
+     * silently align addresses down to a 16-byte boundary. TFLM's tensor
+     * arena only guarantees ~4-byte alignment, so without this shadow the
+     * filter and input loads read 12 bytes of garbage + 4 of real data per
+     * vector, and the model output collapses to a constant. The size calc
+     * reserves +16 bytes margin in every branch to cover this. */
+    int16_t *scratch_buffer_raw = scratch_buffer;
+    int16_t *scratch_buffer = (int16_t *)(((uintptr_t)scratch_buffer_raw + 15) & ~(uintptr_t)15);
+    (void)scratch_buffer_raw;
     const uint16_t input_wd = input_dims->width;
     const uint16_t input_ht = input_dims->height;
     const uint16_t channels = input_dims->channels;
@@ -510,12 +520,12 @@ void esp_nn_depthwise_conv_s8_esp32s3(const data_dims_t *input_dims,
     int filter_size = filter_wd * filter_ht * channels * ch_mult;
     int align_len = 16 - (filter_size & 15);
     int input_size = input_wd * input_ht * channels;
-    int16_t *filter_data16 = scratch_buffer;
-    int16_t *input_data16 = scratch_buffer + filter_size + align_len;
-    if (scratch_buffer == NULL) {
+    if (scratch_buffer_raw == NULL) {
         printf("esp_nn_depthwise_conv error! scratch_buffer not set!\n");
         return;
     }
+    int16_t *filter_data16 = scratch_buffer;
+    int16_t *input_data16 = scratch_buffer + filter_size + align_len;
 
     if ((ch_mult == 1) && (channels % 8 == 0)) {
         if ((filter_wd == 3) && (filter_ht == 3)) {
