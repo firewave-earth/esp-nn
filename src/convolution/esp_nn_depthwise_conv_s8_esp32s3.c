@@ -366,6 +366,13 @@ int esp_nn_get_depthwise_conv_scratch_size_esp32s3(const data_dims_t *input_dims
     int filter_size = filter_wd * filter_ht * channels * ch_mult;
     int pad_width = 0, pad_height = 0;
 
+    /* +16 alignment slack: the dispatcher aligns scratch_buffer up by 0..15
+     * bytes before computing filter_aligned/input_padded; the kernels use
+     * ee.vld.128 / ee.vst.128 which require 16-byte alignment. Without this
+     * slack, TFLM allocates exactly enough bytes for the unaligned layout
+     * and the alignment shift causes a buffer overrun. */
+    const int alignment_slack = 16;
+
     if ((ch_mult == 1) && (channels % 8 == 0)) {
         if(filter_wd == 3 && filter_ht == 3) {
             if (channels % 16 == 0) {
@@ -379,14 +386,14 @@ int esp_nn_get_depthwise_conv_scratch_size_esp32s3(const data_dims_t *input_dims
                 if (pad_width || pad_height) {
                     int full_input = (input_wd + pad_width) * (input_ht + pad_height) * channels;
                     if (full_input <= 40 * 1024) {
-                        return filter_size + full_input + 16;
+                        return filter_size + full_input + 16 + alignment_slack;
                     } else {
                         /* Tiled: only need filter + strip buffer (filter_ht rows) */
                         int strip = (input_wd + pad_width) * filter_ht * channels;
-                        return filter_size + strip + 16;
+                        return filter_size + strip + 16 + alignment_slack;
                     }
                 } else {
-                    return filter_size + 16;
+                    return filter_size + 16 + alignment_slack;
                 }
             } else if (channels >= 12) {
                 /* ch % 8 == 0, not % 16, ch >= 12: pad channels to 16, s8 path + compaction */
@@ -468,16 +475,6 @@ void esp_nn_set_depthwise_conv_scratch_buf_esp32s3(void *buf)
 
 #include "esp_nn_generic_opt.h"
 
-extern void esp_nn_depthwise_conv_s8_ansi(const data_dims_t *input_dims,
-                                          const int8_t *input_data,
-                                          const data_dims_t *filter_dims,
-                                          const int8_t *filter_data,
-                                          const int32_t *bias,
-                                          const data_dims_t *output_dims,
-                                          int8_t *out_data,
-                                          const dw_conv_params_t *conv_params,
-                                          const quant_data_t *quant_data);
-
 void esp_nn_depthwise_conv_s8_esp32s3(const data_dims_t *input_dims,
                                       const int8_t *input_data,
                                       const data_dims_t *filter_dims,
@@ -488,12 +485,16 @@ void esp_nn_depthwise_conv_s8_esp32s3(const data_dims_t *input_dims,
                                       const dw_conv_params_t *conv_params,
                                       const quant_data_t *quant_data)
 {
-    /* Optimized depthwise paths return wrong logits on Stage B; route to
-     * ansi until that's diagnosed. Bisects with the general-conv bypass. */
-    esp_nn_depthwise_conv_s8_ansi(input_dims, input_data, filter_dims,
-                                   filter_data, bias, output_dims, out_data,
-                                   conv_params, quant_data);
-    return;
+    /* Align scratch to 16 bytes — same root cause as the 1x1 mult8 conv
+     * fix: inner depthwise kernels use ee.vld.128 / ee.vst.128 which
+     * silently align addresses down to a 16-byte boundary. TFLM's tensor
+     * arena only guarantees ~4-byte alignment, so without this shadow the
+     * filter and input loads read garbage and the model output collapses
+     * to a constant. The size calc reserves alignment_slack bytes to
+     * cover this. */
+    int16_t *scratch_buffer_raw = scratch_buffer;
+    int16_t *scratch_buffer = (int16_t *)(((uintptr_t)scratch_buffer_raw + 15) & ~(uintptr_t)15);
+    (void)scratch_buffer_raw;
     const uint16_t input_wd = input_dims->width;
     const uint16_t input_ht = input_dims->height;
     const uint16_t channels = input_dims->channels;
@@ -516,12 +517,12 @@ void esp_nn_depthwise_conv_s8_esp32s3(const data_dims_t *input_dims,
     int filter_size = filter_wd * filter_ht * channels * ch_mult;
     int align_len = 16 - (filter_size & 15);
     int input_size = input_wd * input_ht * channels;
-    int16_t *filter_data16 = scratch_buffer;
-    int16_t *input_data16 = scratch_buffer + filter_size + align_len;
-    if (scratch_buffer == NULL) {
+    if (scratch_buffer_raw == NULL) {
         printf("esp_nn_depthwise_conv error! scratch_buffer not set!\n");
         return;
     }
+    int16_t *filter_data16 = scratch_buffer;
+    int16_t *input_data16 = scratch_buffer + filter_size + align_len;
 
     if ((ch_mult == 1) && (channels % 8 == 0)) {
         if ((filter_wd == 3) && (filter_ht == 3)) {
