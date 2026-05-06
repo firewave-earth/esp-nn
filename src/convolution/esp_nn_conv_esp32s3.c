@@ -460,14 +460,6 @@ void esp_nn_conv_s8_esp32s3(const data_dims_t *input_dims,
         return;
     }
 
-    /* The general (non-1x1) optimized kernel produces wrong logits on at
-     * least the Stage B wildfire model (firewave). Until that's diagnosed,
-     * route to the ansi reference. Costs ~2 s on the stem 3x3, total
-     * inference still under the 15 s budget. */
-    esp_nn_conv_s8_ansi(input_dims, input, filter_dims, filter_data,
-                        bias, output_dims, out_data, conv_params, quant_data);
-    return;
-
     {
         int32_t filter_row_size = filter_wd * channels;
         int32_t window_len = filter_wd * filter_ht * channels;
