@@ -460,6 +460,11 @@ void esp_nn_conv_s8_esp32s3(const data_dims_t *input_dims,
         return;
     }
 
+    /* Bisect step 2: general back to ansi, depthwise re-enabled. */
+    esp_nn_conv_s8_ansi(input_dims, input, filter_dims, filter_data,
+                        bias, output_dims, out_data, conv_params, quant_data);
+    return;
+
     {
         int32_t filter_row_size = filter_wd * channels;
         int32_t window_len = filter_wd * filter_ht * channels;

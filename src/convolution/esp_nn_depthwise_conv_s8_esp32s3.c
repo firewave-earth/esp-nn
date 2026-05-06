@@ -488,12 +488,6 @@ void esp_nn_depthwise_conv_s8_esp32s3(const data_dims_t *input_dims,
                                       const dw_conv_params_t *conv_params,
                                       const quant_data_t *quant_data)
 {
-    /* Optimized depthwise paths return wrong logits on Stage B; route to
-     * ansi until that's diagnosed. Bisects with the general-conv bypass. */
-    esp_nn_depthwise_conv_s8_ansi(input_dims, input_data, filter_dims,
-                                   filter_data, bias, output_dims, out_data,
-                                   conv_params, quant_data);
-    return;
     const uint16_t input_wd = input_dims->width;
     const uint16_t input_ht = input_dims->height;
     const uint16_t channels = input_dims->channels;
