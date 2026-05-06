@@ -515,7 +515,12 @@ void esp_nn_conv_s8_esp32s3(const data_dims_t *input_dims,
         int32_t filter_alignment_padding = 16 - (filter_row_size & 15);
         int8_t *filter_data_aligned = (int8_t *) filter_data;
         int8_t *input_padded = (int8_t *) input;
-        int8_t *scratch_data = (int8_t *) scratch_buffer;
+        /* scratch_data feeds filter_data_aligned and input_padded; the kernel's
+         * filter loads use ee.vld.128.ip (aligned-down), so an unaligned
+         * scratch_buffer causes the kernel to read 4..15 bytes of garbage at
+         * the start of every filter row. Align up; align_buf_size in the
+         * size calc already reserves 16 bytes for the shift. */
+        int8_t *scratch_data = (int8_t *)(((uintptr_t)scratch_buffer + 15) & ~(uintptr_t)15);
         int new_input_wd = input_wd, new_input_ht = input_ht;
         if (filter_alignment_padding != 16) {
             // pad filter_data
