@@ -366,6 +366,13 @@ int esp_nn_get_depthwise_conv_scratch_size_esp32s3(const data_dims_t *input_dims
     int filter_size = filter_wd * filter_ht * channels * ch_mult;
     int pad_width = 0, pad_height = 0;
 
+    /* +16 alignment slack: the dispatcher aligns scratch_buffer up by 0..15
+     * bytes before computing filter_aligned/input_padded; the kernels use
+     * ee.vld.128 / ee.vst.128 which require 16-byte alignment. Without this
+     * slack, TFLM allocates exactly enough bytes for the unaligned layout
+     * and the alignment shift causes a buffer overrun. */
+    const int alignment_slack = 16;
+
     if ((ch_mult == 1) && (channels % 8 == 0)) {
         if(filter_wd == 3 && filter_ht == 3) {
             if (channels % 16 == 0) {
@@ -379,14 +386,14 @@ int esp_nn_get_depthwise_conv_scratch_size_esp32s3(const data_dims_t *input_dims
                 if (pad_width || pad_height) {
                     int full_input = (input_wd + pad_width) * (input_ht + pad_height) * channels;
                     if (full_input <= 40 * 1024) {
-                        return filter_size + full_input + 16;
+                        return filter_size + full_input + 16 + alignment_slack;
                     } else {
                         /* Tiled: only need filter + strip buffer (filter_ht rows) */
                         int strip = (input_wd + pad_width) * filter_ht * channels;
-                        return filter_size + strip + 16;
+                        return filter_size + strip + 16 + alignment_slack;
                     }
                 } else {
-                    return filter_size + 16;
+                    return filter_size + 16 + alignment_slack;
                 }
             } else if (channels >= 12) {
                 /* ch % 8 == 0, not % 16, ch >= 12: pad channels to 16, s8 path + compaction */
