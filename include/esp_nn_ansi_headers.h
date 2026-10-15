@@ -125,6 +125,54 @@ int esp_nn_get_conv_scratch_size_ansi(const data_dims_t *input_dims,
                                       const conv_params_t *conv_params);
 void esp_nn_set_conv_scratch_buf_ansi(const void *buf);
 
+/**
+ * @brief       per channel constants for esp_nn_conv_s8_window16
+ *
+ * @note        filter: the channel's 16-byte filter, zero past the last tap.
+ *              Returns 0, or -1 when the window kernels cannot reproduce TFLite's
+ *              requantisation exactly for these values: out_shift outside
+ *              [-21, -1] with a nonzero multiplier, a negative multiplier, an
+ *              output offset outside int8, or an accumulator that can reach 2^29.
+ */
+int esp_nn_conv_s8_window16_quant_init(const int8_t *filter,
+                                       const int32_t bias,
+                                       const int32_t in_offset,
+                                       const int32_t out_offset,
+                                       const int32_t out_mult,
+                                       const int32_t out_shift,
+                                       const int32_t activation_min,
+                                       const int32_t activation_max,
+                                       conv_window16_quant_t *quant);
+
+/**
+ * @brief       one output channel of an int8 convolution whose taps fit in 16
+ *              bytes, e.g. a 3x3 filter over one input channel
+ *
+ * @note        windows: one 16-byte window per output pixel holding the input
+ *              under each tap, and -in_offset where a tap falls in the padding.
+ *              Lanes past the last tap may hold anything; the filter is zero
+ *              there. out[i * out_stride] gets pixel i.
+ *
+ *              The result equals TFLite's reference conv bit for bit. Let x be
+ *              TFLite's accumulator, sum((input + in_offset) * filter) + bias,
+ *              which is window . filter + bias4 / 4 here; rs = -out_shift and
+ *              y = (4x * mult) >> 32. TFLite's doubling high multiply is then
+ *              (y + 1) >> 1, and its rounding shift plus output offset is
+ *              (high + 2^(rs-1) - [high < 0] + out_offset * 2^rs) >> rs. The
+ *              two floors nest into one: (y + round - 2 * [x < 0]) >> (rs + 1).
+ *              [x < 0] differs from [high < 0] only when high is 0, where both
+ *              give 0.
+ *
+ *              The S3 version needs windows and filter 16-byte aligned and reads
+ *              one window past the last.
+ */
+void esp_nn_conv_s8_window16_ansi(const int8_t *windows,
+                                  const int8_t *filter,
+                                  int8_t *out,
+                                  const int32_t count,
+                                  const int32_t out_stride,
+                                  const conv_window16_quant_t *quant);
+
 int esp_nn_get_depthwise_conv_scratch_size_ansi(const data_dims_t *input_dims,
                                                 const data_dims_t *filter_dims,
                                                 const data_dims_t *output_dims,

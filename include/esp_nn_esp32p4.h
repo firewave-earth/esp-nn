@@ -43,6 +43,7 @@ void esp_nn_set_conv_scratch_buf_esp32p4(const void *buf);
 
 
 #define esp_nn_mul_broadcast_channel_s8 esp_nn_mul_broadcast_channel_s8_ansi
+#define esp_nn_conv_s8_window16 esp_nn_conv_s8_window16_ansi
 
 void esp_nn_add_elementwise_s8_esp32p4(const int8_t *input1_data,
                                         const int8_t *input2_data,
