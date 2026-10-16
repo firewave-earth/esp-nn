@@ -25,6 +25,8 @@
 #define esp_nn_get_conv_scratch_size esp_nn_get_conv_scratch_size_opt
 #define esp_nn_set_conv_scratch_buf esp_nn_set_conv_scratch_buf_opt
 
+#define esp_nn_conv_s8_window16 esp_nn_conv_s8_window16_ansi
+
 #define esp_nn_get_depthwise_conv_scratch_size esp_nn_get_depthwise_conv_scratch_size_opt
 #define esp_nn_set_depthwise_conv_scratch_buf esp_nn_set_depthwise_conv_scratch_buf_opt
 

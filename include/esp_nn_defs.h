@@ -69,6 +69,21 @@ typedef struct conv_params {
 } conv_params_t;
 
 /**
+ * @brief per channel constants for esp_nn_conv_s8_window16
+ *
+ * @note filled by esp_nn_conv_s8_window16_quant_init. The S3 assembly reads the
+ *       fields at these offsets, so keep the order.
+ */
+typedef struct conv_window16_quant {
+    int32_t bias4;      // 4 * (bias + in_offset * sum(filter))
+    int32_t mult;       // output multiplier
+    int32_t round;      // 1 + 2^rs + out_offset * 2^(rs + 1), rs = -out_shift
+    int32_t shift;      // rs + 1
+    int32_t act_min;
+    int32_t act_max;
+} conv_window16_quant_t;
+
+/**
  * @brief params specific to depthwise convolution 2d
  *
  */

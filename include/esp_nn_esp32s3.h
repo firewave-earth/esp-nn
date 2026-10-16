@@ -249,6 +249,14 @@ void esp_nn_mul_broadcast_channel_s8_esp32s3(const int8_t *input1,
 
 #define esp_nn_conv_s8 esp_nn_conv_s8_esp32s3
 
+void esp_nn_conv_s8_window16_esp32s3(const int8_t *windows,
+                                     const int8_t *filter,
+                                     int8_t *out,
+                                     const int32_t count,
+                                     const int32_t out_stride,
+                                     const conv_window16_quant_t *quant);
+#define esp_nn_conv_s8_window16 esp_nn_conv_s8_window16_esp32s3
+
 #define esp_nn_relu6_s8 esp_nn_relu6_s8_esp32s3
 
 int32_t esp_nn_get_hard_swish_scratch_size_esp32s3(void);
